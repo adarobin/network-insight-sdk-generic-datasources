@@ -1,0 +1,37 @@
+no pagination
+help
+show system information
+show serial-number
+show hardware
+show firmware version normal
+show switch detail
+show enclosure details
+show mgmt interface
+show host
+show clock
+show interfaces status
+show interfaces description
+show interfaces mtu
+show interfaces capabilities
+show interfaces information
+show transceiver-info all
+show port vlanlist
+show vlan port config
+show vlan port info
+show uplinkset summary
+show uplinkport all
+show etherchannel summary
+show etherchannel detail
+show interfaces etherchannel
+show lacp neighbor detail
+show vlan brief
+show vlan summary
+show mac-address-table
+show mac-address-table count
+show lldp
+show lldp neighbors
+show lldp neighbors detail
+show lldp local mgmt-addr
+show ip interface
+show ip route
+show running-config
