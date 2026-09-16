@@ -1,0 +1,32 @@
+# Copyright 2026 The Regents of the University of Michigan
+# SPDX-License-Identifier: BSD-2-Clause
+# HPE Virtual Connect SE 100Gb F32 Module for Synergy
+#
+# device_type: HPE_VC_SE
+#
+# Paging must be off for the long outputs to arrive complete; the custom netmiko
+# class sends 'no pagination' during session preparation.
+
+package_handler:
+  <<: *PACKAGE_HANDLER
+
+workloads:
+  # Identity first, so a connection or credential problem fails fast.
+  - <<: *SHOW_HOST
+  - <<: *SHOW_SYSTEM_INFORMATION
+  - <<: *SHOW_SERIAL_NUMBER
+  - <<: *SWITCH
+  # Ports, then the VLAN membership that switch-ports and port-channels join to.
+  - <<: *SHOW_INTERFACES
+  - <<: *SHOW_PORT_VLANLIST
+  - <<: *SWITCH_PORTS
+  - <<: *PORT_CHANNELS
+  - <<: *SHOW_VLAN_BRIEF
+  - <<: *SHOW_MAC_ADDRESS_TABLE
+  - <<: *SHOW_LLDP_NEIGHBORS
+  - <<: *SHOW_IP_INTERFACE
+  - <<: *SHOW_IP_ROUTE
+  - <<: *SHOW_VRFS
+
+result_writer:
+  <<: *RESULT_WRITER

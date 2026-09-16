@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# Copyright 2019 VMware, Inc.
+# Copyright 2026 The Regents of the University of Michigan
 # SPDX-License-Identifier: BSD-2-Clause
 
 """Split an interactive CLI session log into per-command fixture files.

@@ -1,0 +1,207 @@
+# Copyright 2026 The Regents of the University of Michigan
+# SPDX-License-Identifier: BSD-2-Clause
+# HPE Virtual Connect SE modules for Synergy.
+#
+# The read-only "netops" CLI is the Aricent/ISS switching stack behind an
+# 'OneView>' prompt, with Virtual Connect extensions. Paging is disabled with
+# 'no pagination'.
+
+generic_text_parser: &GENERIC_TEXT_PARSER network_insight_sdk_generic_datasources.parsers.common.text_parser.GenericTextParser
+horizontal_table_parser: &HORIZONTAL_TABLE_PARSER network_insight_sdk_generic_datasources.parsers.common.horizontal_table_parser.HorizontalTableParser
+generation_directory: &GENERATION_DIRECTORY /tmp/uani
+
+package_handler: &PACKAGE_HANDLER
+  name: ZipPackageHandler
+
+# workloads added will be executed in sequence
+workloads: &WORKLOADS
+
+  # ------------------------------------------------------------------ switch.csv
+  # No single command carries every identity field, so three are collected and
+  # merged by HpeSwitchTableProcessor.
+  - &SHOW_HOST
+    table_id: showHost
+    command: show host
+    parser:
+      name: *GENERIC_TEXT_PARSER
+      arguments:
+        rules:
+          hostname: "Host Name\\s*:\\s*(\\S+)"
+
+  - &SHOW_SYSTEM_INFORMATION
+    table_id: showSystemInformation
+    command: show system information
+    parser:
+      name: *GENERIC_TEXT_PARSER
+      arguments:
+        rules:
+          os: "Firmware Version\\s*:\\s*(\\S+)"
+
+  - &SHOW_SERIAL_NUMBER
+    table_id: showSerialNumber
+    command: show serial-number
+    parser:
+      name: *GENERIC_TEXT_PARSER
+      arguments:
+        rules:
+          serial: "Serial Number\\s+:\\s*(\\S+)"
+
+  - &SWITCH
+    table_id: switch
+    reuse_tables: showHost,showSystemInformation,showSerialNumber
+    reuse_table_processor: HpeSwitchTableProcessor
+
+  # ------------------------------------------- switch-ports.csv / port-channels.csv
+  # The only command that enumerates every port, including the S-Channel server
+  # downlinks that carry VM traffic. One block per interface.
+  - &SHOW_INTERFACES
+    table_id: showInterfaces
+    command: show interfaces information
+    block_parser:
+      name: GenericBlockParser
+      arguments:
+        line_pattern: "^\\S+ (?:up|down), line protocol is"
+    parser:
+      pre_post_processor: HpeInterfacePrePostProcessor
+      name: *GENERIC_TEXT_PARSER
+      arguments:
+        rules:
+          name: "^(\\S+) (?:up|down), line protocol is"
+          administrativeStatus: "^\\S+ (up|down), line protocol is"
+          operationalStatus: "^\\S+ (?:up|down), line protocol is (up|down)"
+          connected: "^\\S+ (?:up|down), line protocol is (?:up|down) \\((.*)\\)"
+          bridgePortType: "Bridge Port Type:\\s*(.*\\S)"
+          hardwareAddress: "Hardware Address is\\s+(\\S+)"
+          mtu: "MTU\\s+(\\d+) bytes"
+          duplex: "^(Full|Half|Auto) duplex,"
+          speedValue: "^(?:Full|Half|Auto) duplex,\\s*(\\d+(?:\\.\\d+)?)\\s*\\w+bps"
+          speedUnit: "^(?:Full|Half|Auto) duplex,\\s*\\d+(?:\\.\\d+)?\\s*(\\w+bps)"
+
+  # VLAN membership per port, which is what makes switchPortMode meaningful.
+  - &SHOW_PORT_VLANLIST
+    table_id: showPortVlanList
+    command: show port vlanlist
+    block_parser:
+      name: GenericBlockParser
+      arguments:
+        line_pattern: "^Port\\s+\\S+"
+    parser:
+      pre_post_processor: HpePortVlanListPrePostProcessor
+      name: *GENERIC_TEXT_PARSER
+      arguments:
+        rules:
+          name: "^Port\\s+(\\S+)"
+          memberVlans: "Member Vlan's\\s*:\\s*(.*\\S)"
+          untaggedVlans: "Untagged Vlan's\\s*:\\s*(.*\\S)"
+
+  - &SWITCH_PORTS
+    table_id: switch-ports
+    reuse_tables: showInterfaces,showPortVlanList
+    reuse_table_processor: HpeSwitchPortsTableProcessor
+
+  - &PORT_CHANNELS
+    table_id: port-channels
+    reuse_tables: showInterfaces,showPortVlanList
+    reuse_table_processor: HpePortChannelsTableProcessor
+
+  # ------------------------------------------------------------- l2bridges.csv
+  - &SHOW_VLAN_BRIEF
+    table_id: l2bridges
+    command: show vlan brief
+    block_parser:
+      name: GenericBlockParser
+      arguments:
+        line_pattern: "^Vlan ID\\s*:"
+    parser:
+      pre_post_processor: HpeVlanPrePostProcessor
+      name: *GENERIC_TEXT_PARSER
+      arguments:
+        rules:
+          vlans: "^Vlan ID\\s*:\\s*(\\d+)"
+          name: "^Name\\s*:\\s*(\\S+)"
+
+  # ------------------------------------------------------ mac-address-table.csv
+  - &SHOW_MAC_ADDRESS_TABLE
+    table_id: mac-address-table
+    command: show mac-address-table
+    parser:
+      pre_post_processor: HpeMacAddressTablePrePostProcessor
+      name: *HORIZONTAL_TABLE_PARSER
+      arguments:
+        skip_head: 2
+        header_keys:
+          - vlan
+          - macAddress
+          - type
+          - switchPort
+          - hit
+
+  # ------------------------------------------------------------- neighbors.csv
+  # The detail form is used because the summary truncates chassis ids and leaves
+  # the capability column blank on some rows, which shifts a columnar parse.
+  - &SHOW_LLDP_NEIGHBORS
+    table_id: neighbors
+    command: show lldp neighbors detail
+    block_parser:
+      name: GenericBlockParser
+      arguments:
+        line_pattern: "^Chassis Id SubType\\s*:"
+    parser:
+      pre_post_processor: HpeLldpNeighborsPrePostProcessor
+      name: *GENERIC_TEXT_PARSER
+      arguments:
+        rules:
+          chassisId: "^Chassis Id\\s+:\\s*(\\S+)"
+          remoteInterface: "^Port Id\\s+:\\s*(\\S+)"
+          remoteDevice: "^System Name\\s+:\\s*(\\S+)"
+          localInterface: "^Local Intf\\s+:\\s*(\\S+)"
+
+  # -------------------------------------------------- router-interfaces.csv
+  - &SHOW_IP_INTERFACE
+    table_id: router-interfaces
+    command: show ip interface
+    block_parser:
+      name: GenericBlockParser
+      arguments:
+        line_pattern: "^\\S+ is (?:up|down), line protocol is"
+    parser:
+      pre_post_processor: HpeRouterInterfacesPrePostProcessor
+      name: *GENERIC_TEXT_PARSER
+      arguments:
+        rules:
+          name: "^(\\S+) is (?:up|down), line protocol is"
+          administrativeStatus: "^\\S+ is (up|down), line protocol is"
+          operationalStatus: "^\\S+ is (?:up|down), line protocol is (up|down)"
+          ipAddress: "Internet Address is\\s+(\\S+)"
+
+  # ------------------------------------------------- routes.csv and vrfs.csv
+  # Both come from the routing table: it is the only place a VRF is named, since
+  # the platform has no bare 'show vrf'.
+  - &SHOW_IP_ROUTE
+    table_id: routes
+    command: show ip route
+    parser:
+      name: network_insight_sdk_generic_datasources.routers_and_switches.hpe.hpe_pre_post_processor.HpeRoutesPrePostProcessor
+
+  - &SHOW_VRFS
+    table_id: vrfs
+    reuse_command: show ip route
+    parser:
+      name: network_insight_sdk_generic_datasources.routers_and_switches.hpe.hpe_pre_post_processor.HpeVrfPrePostProcessor
+
+
+result_writer: &RESULT_WRITER
+  name: CsvWriter
+  table_id:
+    - switch
+    - switch-ports
+    - port-channels
+    - vrfs
+    - router-interfaces
+    - routes
+    - mac-address-table
+    - neighbors
+    - l2bridges
+
+
+vc-se-100gb-f32: !include vc-se-100gb-f32.yml
