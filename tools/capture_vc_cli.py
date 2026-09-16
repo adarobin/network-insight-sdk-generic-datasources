@@ -18,6 +18,21 @@ Example:
 
     python tools/capture_vc_cli.py -i 10.1.1.10 -u readonly_user
 
+Through a jump host that requires MFA, authenticate once with a reusable SSH
+control socket so the hop needs no interaction on subsequent runs:
+
+    # ~/.ssh/config
+    Host jump.example.com
+        ControlMaster auto
+        ControlPath ~/.ssh/cm-%r@%h:%p
+        ControlPersist 8h
+
+    ssh -fN jump.example.com          # complete MFA once
+    python tools/capture_vc_cli.py -i 10.1.1.10 -u readonly_user -J jump.example.com
+
+Without a control socket the hop prompts for MFA on every run, and --conn-timeout
+must be long enough to answer it.
+
 Re-run after a firmware upgrade to refresh the fixtures and catch output drift.
 """
 
@@ -31,6 +46,7 @@ import sys
 import time
 
 from netmiko import ConnectHandler
+from netmiko.exceptions import NetmikoTimeoutException
 
 DEFAULT_OUTPUT_DIR = os.path.join('test', 'fixtures', 'hpe', 'vc-se-100gb-f32')
 
@@ -128,6 +144,10 @@ def parse_arguments(argv=None):
                         help='Directory for fixture files (default %s)' % DEFAULT_OUTPUT_DIR)
     parser.add_argument('-t', '--timeout', type=float, default=60.0,
                         help='Per-command read timeout in seconds (default 60)')
+    parser.add_argument('--conn-timeout', type=float, default=30.0,
+                        help='Seconds to allow for the TCP/SSH handshake (default 30). Raise it '
+                             'well above the default when a jump host prompts for MFA, since the '
+                             'handshake cannot complete until you answer.')
     parser.add_argument('--commands-file',
                         help='File of commands to run, one per line, instead of the built-in probes')
     parser.add_argument('--allow-any-command', action='store_true',
@@ -225,9 +245,26 @@ def main(argv=None):
 
     print('Connecting to %s:%s as %s (platform %s)'
           % (args.ip, args.port, args.username, args.device_type))
-    connection = ConnectHandler(device_type=args.device_type, host=args.ip, port=args.port,
-                                username=args.username, password=resolve_password(args),
-                                **build_proxy_kwargs(args))
+    try:
+        connection = ConnectHandler(device_type=args.device_type, host=args.ip, port=args.port,
+                                    username=args.username, password=resolve_password(args),
+                                    conn_timeout=args.conn_timeout,
+                                    banner_timeout=args.conn_timeout,
+                                    **build_proxy_kwargs(args))
+    except NetmikoTimeoutException as error:
+        sys.stderr.write(
+            '\nConnection timed out after %gs: %s\n\n'
+            'If a jump host prompted for MFA, the handshake could not finish before the\n'
+            'timeout. Either raise it (--conn-timeout 120), or better, authenticate once\n'
+            'into a reusable SSH control socket so the hop needs no interaction:\n\n'
+            '    # ~/.ssh/config\n'
+            '    Host <jump-host>\n'
+            '        ControlMaster auto\n'
+            '        ControlPath ~/.ssh/cm-%%r@%%h:%%p\n'
+            '        ControlPersist 8h\n\n'
+            '    ssh -fN <jump-host>     # answer MFA once, then re-run this tool\n'
+            % (args.conn_timeout, error))
+        return 1
 
     manifest = {
         'captured_at': datetime.datetime.now().isoformat(),
