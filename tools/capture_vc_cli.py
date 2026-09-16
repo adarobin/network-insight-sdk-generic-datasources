@@ -133,7 +133,32 @@ def parse_arguments(argv=None):
     parser.add_argument('--allow-any-command', action='store_true',
                         help='Permit commands that are not obviously read-only. Off by default so '
                              'a stray line in --commands-file cannot reconfigure the module.')
-    return parser.parse_args(argv)
+    parser.add_argument('-J', '--proxy-jump', metavar='[USER@]HOST',
+                        help='Reach the module through this jump host, like ssh -J. Shells out to '
+                             'the system ssh, so agent keys and ~/.ssh/config apply to the hop.')
+    parser.add_argument('--ssh-config', metavar='PATH',
+                        help='Read connection settings from an OpenSSH config file, honouring its '
+                             'ProxyCommand or ProxyJump for --ip. netmiko supports only a single '
+                             'ProxyJump hop.')
+    args = parser.parse_args(argv)
+    if args.proxy_jump and args.ssh_config:
+        parser.error('--proxy-jump and --ssh-config are mutually exclusive; put the hop in the '
+                     'config file and use --ssh-config alone.')
+    return args
+
+
+def build_proxy_kwargs(args):
+    """Extra ConnectHandler kwargs that route the session via a jump host."""
+    if args.ssh_config:
+        return {'ssh_config_file': args.ssh_config}
+    if args.proxy_jump:
+        # 'ssh -W host:port jump' hands us a raw stream to the target, and using the
+        # system ssh means agent keys and ~/.ssh/config apply to the hop for free.
+        from paramiko import ProxyCommand
+        command = 'ssh -W {}:{} {}'.format(args.ip, args.port, args.proxy_jump)
+        print('Proxying via: %s' % command)
+        return {'sock': ProxyCommand(command)}
+    return {}
 
 
 def resolve_password(args):
@@ -201,7 +226,8 @@ def main(argv=None):
     print('Connecting to %s:%s as %s (platform %s)'
           % (args.ip, args.port, args.username, args.device_type))
     connection = ConnectHandler(device_type=args.device_type, host=args.ip, port=args.port,
-                                username=args.username, password=resolve_password(args))
+                                username=args.username, password=resolve_password(args),
+                                **build_proxy_kwargs(args))
 
     manifest = {
         'captured_at': datetime.datetime.now().isoformat(),
