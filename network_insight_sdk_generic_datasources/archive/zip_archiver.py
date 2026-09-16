@@ -5,13 +5,14 @@ import os
 import zipfile
 from shutil import copyfile
 from network_insight_sdk_generic_datasources.common.log import py_logger
+from network_insight_sdk_generic_datasources.common.constants import CSV_EXTENSION
 
 
 class ZipArchiver(object):
     """
     Utility for creating zip file out of a directory containing other files.
     """
-    def __init__(self, self_zip=False, filename=None, path=None):
+    def __init__(self, self_zip=False, filename=None, path=None, expected_filenames=None):
         if path is None:
             raise ValueError("Invalid Path. Please provide path.")
         if filename is None:
@@ -23,6 +24,11 @@ class ZipArchiver(object):
         self.self_zip = self_zip
         self.path = path
         self.filename = filename
+        # None means 'archive whatever is in path'; a list restricts the archive to
+        # exactly the tables this run produced.
+        self.expected_filenames = None
+        if expected_filenames is not None:
+            self.expected_filenames = [f + CSV_EXTENSION for f in expected_filenames]
 
     def zipdir(self):
         if not os.path.exists(self.path):
@@ -37,7 +43,13 @@ class ZipArchiver(object):
         zipf = zipfile.ZipFile(zip_file_path, 'w', zipfile.ZIP_DEFLATED)
         for root, dirs, files in os.walk(self.path):
             for f in files:
-                zipf.write(os.path.join(root, f))
+                if self.expected_filenames is not None and f not in self.expected_filenames:
+                    py_logger.info("Skipping {}, not produced by this run".format(f))
+                    continue
+                # arcname keeps the CSVs at the root of the archive. Without it,
+                # zipfile stores the path relative to CWD, burying them under
+                # tmp/uani/<ip>/ and leaking local filesystem layout.
+                zipf.write(os.path.join(root, f), arcname=f)
         zipf.close()
 
     def copy_project_base(self):

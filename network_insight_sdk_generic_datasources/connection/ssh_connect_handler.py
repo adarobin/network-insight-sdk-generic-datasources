@@ -5,15 +5,21 @@ from netmiko import ConnectHandler
 from network_insight_sdk_generic_datasources.connection.device_type import DeviceType
 from network_insight_sdk_generic_datasources.common.log import py_logger
 
+# Netmiko 4.x deprecated delay_factor/max_loops: they are accepted but ignored, leaving
+# the 10 second default read_timeout, which truncates long 'show' output. Set it explicitly.
+DEFAULT_READ_TIMEOUT = 120
+
 
 class SSHConnectHandler(object):
     LINE_BREAK = '\nLINE_BREAK'
 
-    def __init__(self, ip=None, username=None, password=None, device_type=None, port=22, **kwargs):
+    def __init__(self, ip=None, username=None, password=None, device_type=None, port=22,
+                 read_timeout=DEFAULT_READ_TIMEOUT, **kwargs):
         self.ip = ip
         self.username = username
         self.password = password
         self.port = port
+        self.read_timeout = float(read_timeout)
 
         if device_type not in DeviceType.values():
             raise ValueError("Invalid device type {}".format(device_type))
@@ -27,7 +33,7 @@ class SSHConnectHandler(object):
         if command is None:
             raise ValueError("Command not provided")
         py_logger.info('Executing command <{}>'.format(command))
-        result = self.net_connect.send_command(command, delay_factor=2, max_loops=1000)
+        result = self.net_connect.send_command(command, read_timeout=self.read_timeout)
         py_logger.info(result)
         return result
 

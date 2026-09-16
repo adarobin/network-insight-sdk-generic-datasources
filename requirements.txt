@@ -1,5 +1,7 @@
-netmiko
+netmiko>=4.0
 requests
 pyyaml
 netaddr
--e git+https://github.com/vmware/network-insight-sdk-python.git#egg=network-insight-sdk-python
+# Only needed for the scripted vRNI upload helper (add_generic_switch_router.py).
+# Uncomment if you automate the upload instead of using the UI.
+# -e git+https://github.com/vmware/network-insight-sdk-python.git#egg=network-insight-sdk-python
