@@ -3,3 +3,8 @@
 network-insight-sdk-python
 *.zip
 .venv/
+
+# Device captures contain internal IPs, serials, MAC addresses and LLDP neighbour
+# hostnames. This fork is public, so captures stay local; only the README is tracked.
+test/fixtures/*
+!test/fixtures/README.md
